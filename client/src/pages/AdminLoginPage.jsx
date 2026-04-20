@@ -51,7 +51,7 @@ export default function AdminLoginPage() {
                 className="w-full bg-navy-800 border border-navy-600 rounded-lg px-4 py-3 text-white text-sm
                            focus:outline-none focus:ring-2 focus:ring-gold-500 focus:border-transparent
                            placeholder-navy-500 transition-all"
-                placeholder="nurddinova"
+                placeholder="Login"
                 required
                 autoComplete="username"
               />

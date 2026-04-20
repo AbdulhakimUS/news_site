@@ -107,10 +107,10 @@ const seedDB = db.transaction(() => {
   }
 
   // Admin user
-  const adminExists = db.prepare('SELECT id FROM admins WHERE username = ?').get('nurddinova');
+  const adminExists = db.prepare('SELECT id FROM admins WHERE username = ?').get('nuriddinova');
   if (!adminExists) {
-    const hashed = bcrypt.hashSync('yurist123', 12);
-    db.prepare('INSERT INTO admins (username, password) VALUES (?, ?)').run('nurddinova', hashed);
+    const hashed = bcrypt.hashSync('nuriddinova', 12);
+    db.prepare('INSERT INTO admins (username, password) VALUES (?, ?)').run('nuriddinova', hashed);
   }
 
   // Sample articles (Lorem Ipsum placeholders)
