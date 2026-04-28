@@ -18,6 +18,7 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'tbgj_super_secret_jwt_key_2024';
 
