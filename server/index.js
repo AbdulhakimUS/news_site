@@ -254,14 +254,19 @@ app.delete('/api/admin/articles/:id', requireAuth, async (req, res) => {
 });
 
 app.put('/api/admin/settings', requireAuth, upload.single('logo'), async (req, res) => {
-  const { brand_name, tg_link, insta_link } = req.body;
-  const logo_url = req.file ? req.file.path : req.body.logo_url;
-  await pool.query(
-    'UPDATE settings SET brand_name = $1, tg_link = $2, insta_link = $3, logo_url = $4 WHERE id = 1',
-    [sanitize(brand_name || ''), sanitize(tg_link || ''), sanitize(insta_link || ''), sanitize(logo_url || '')]
-  );
-  const r = await pool.query('SELECT * FROM settings WHERE id = 1');
-  res.json(r.rows[0]);
+  try {
+    const { brand_name, tg_link, insta_link } = req.body;
+    const logo_url = req.file ? req.file.path : req.body.logo_url;
+    await pool.query(
+      'UPDATE settings SET brand_name = $1, tg_link = $2, insta_link = $3, logo_url = $4 WHERE id = 1',
+      [sanitize(brand_name || ''), sanitize(tg_link || ''), sanitize(insta_link || ''), sanitize(logo_url || '')]
+    );
+    const r = await pool.query('SELECT * FROM settings WHERE id = 1');
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error('Settings error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.listen(PORT, () => console.log(`✅ TBGJ Server running on http://localhost:${PORT}`));
