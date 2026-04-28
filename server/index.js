@@ -49,7 +49,8 @@ const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { er
 app.use('/api/', apiLimiter);
 
 // ─── SQLite Database Setup ────────────────────────────────────────────────────
-const db = new Database(path.join(__dirname, 'tbgj.db'));
+const dbDir = process.env.RENDER ? '/data' : __dirname;
+const db = new Database(path.join(dbDir, 'tbgj.db'));
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
