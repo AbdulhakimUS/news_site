@@ -1,21 +1,15 @@
-/**
- * The Best Generations Journal - Express Server
- * Handles: Auth, Articles CRUD, Settings, File Uploads (Cloudinary)
- */
-
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const Database = require('better-sqlite3');
+const { Pool } = require('pg');
 const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const cloudinary = require('cloudinary').v2;
 const xss = require('xss');
 const path = require('path');
-const fs = require('fs');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -27,6 +21,12 @@ cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// ─── PostgreSQL ───────────────────────────────────────────────────────────────
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
 });
 
 // ─── Security Middleware ──────────────────────────────────────────────────────
@@ -43,59 +43,56 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Rate limiting
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200 });
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many login attempts' } });
 app.use('/api/', apiLimiter);
 
-// ─── SQLite Database Setup ────────────────────────────────────────────────────
-const dbDir = process.env.RENDER ? '/data' : __dirname;
-const db = new Database(path.join(dbDir, 'tbgj.db'));
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+// ─── DB Init ──────────────────────────────────────────────────────────────────
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS settings (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      logo_url TEXT DEFAULT '',
+      brand_name TEXT DEFAULT 'The Best Generations Journal',
+      tg_link TEXT DEFAULT '',
+      insta_link TEXT DEFAULT ''
+    );
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS settings (
-    id INTEGER PRIMARY KEY DEFAULT 1,
-    logo_url TEXT DEFAULT '',
-    brand_name TEXT DEFAULT 'The Best Generations Journal',
-    tg_link TEXT DEFAULT '',
-    insta_link TEXT DEFAULT ''
-  );
+    CREATE TABLE IF NOT EXISTS admins (
+      id SERIAL PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
 
-  CREATE TABLE IF NOT EXISTS admins (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+    CREATE TABLE IF NOT EXISTS articles (
+      id SERIAL PRIMARY KEY,
+      photo_path TEXT DEFAULT '',
+      hashtags TEXT DEFAULT '[]',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      title_uz TEXT DEFAULT '', author_info_uz TEXT DEFAULT '', abstract_uz TEXT DEFAULT '', keywords_uz TEXT DEFAULT '', introduction_uz TEXT DEFAULT '', literature_review_uz TEXT DEFAULT '', methodology_uz TEXT DEFAULT '', analysis_results_uz TEXT DEFAULT '', conclusion_uz TEXT DEFAULT '', references_uz TEXT DEFAULT '',
+      title_ru TEXT DEFAULT '', author_info_ru TEXT DEFAULT '', abstract_ru TEXT DEFAULT '', keywords_ru TEXT DEFAULT '', introduction_ru TEXT DEFAULT '', literature_review_ru TEXT DEFAULT '', methodology_ru TEXT DEFAULT '', analysis_results_ru TEXT DEFAULT '', conclusion_ru TEXT DEFAULT '', references_ru TEXT DEFAULT '',
+      title_en TEXT DEFAULT '', author_info_en TEXT DEFAULT '', abstract_en TEXT DEFAULT '', keywords_en TEXT DEFAULT '', introduction_en TEXT DEFAULT '', literature_review_en TEXT DEFAULT '', methodology_en TEXT DEFAULT '', analysis_results_en TEXT DEFAULT '', conclusion_en TEXT DEFAULT '', references_en TEXT DEFAULT ''
+    );
+  `);
 
-  CREATE TABLE IF NOT EXISTS articles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    photo_path TEXT DEFAULT '',
-    hashtags TEXT DEFAULT '[]',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    title_uz TEXT DEFAULT '', author_info_uz TEXT DEFAULT '', abstract_uz TEXT DEFAULT '', keywords_uz TEXT DEFAULT '', introduction_uz TEXT DEFAULT '', literature_review_uz TEXT DEFAULT '', methodology_uz TEXT DEFAULT '', analysis_results_uz TEXT DEFAULT '', conclusion_uz TEXT DEFAULT '', references_uz TEXT DEFAULT '',
-    title_ru TEXT DEFAULT '', author_info_ru TEXT DEFAULT '', abstract_ru TEXT DEFAULT '', keywords_ru TEXT DEFAULT '', introduction_ru TEXT DEFAULT '', literature_review_ru TEXT DEFAULT '', methodology_ru TEXT DEFAULT '', analysis_results_ru TEXT DEFAULT '', conclusion_ru TEXT DEFAULT '', references_ru TEXT DEFAULT '',
-    title_en TEXT DEFAULT '', author_info_en TEXT DEFAULT '', abstract_en TEXT DEFAULT '', keywords_en TEXT DEFAULT '', introduction_en TEXT DEFAULT '', literature_review_en TEXT DEFAULT '', methodology_en TEXT DEFAULT '', analysis_results_en TEXT DEFAULT '', conclusion_en TEXT DEFAULT '', references_en TEXT DEFAULT ''
-  );
-`);
-
-// ─── Seed Initial Data ────────────────────────────────────────────────────────
-const seedDB = db.transaction(() => {
-  const settingsRow = db.prepare('SELECT id FROM settings WHERE id = 1').get();
-  if (!settingsRow) {
-    db.prepare('INSERT INTO settings (id, brand_name) VALUES (1, ?)').run('The Best Generations Journal');
+  const s = await pool.query('SELECT id FROM settings WHERE id = 1');
+  if (s.rows.length === 0) {
+    await pool.query('INSERT INTO settings (id, brand_name) VALUES (1, $1)', ['The Best Generations Journal']);
   }
-  const adminExists = db.prepare('SELECT id FROM admins WHERE username = ?').get('nuriddinova');
-  if (!adminExists) {
+
+  const a = await pool.query('SELECT id FROM admins WHERE username = $1', ['nuriddinova']);
+  if (a.rows.length === 0) {
     const hashed = bcrypt.hashSync('nuriddinova', 12);
-    db.prepare('INSERT INTO admins (username, password) VALUES (?, ?)').run('nuriddinova', hashed);
+    await pool.query('INSERT INTO admins (username, password) VALUES ($1, $2)', ['nuriddinova', hashed]);
   }
-});
-seedDB();
 
-// ─── Multer + Cloudinary Storage ──────────────────────────────────────────────
+  console.log('✅ PostgreSQL connected and initialized');
+}
+
+initDB().catch(console.error);
+
+// ─── Multer + Cloudinary ──────────────────────────────────────────────────────
 const cloudinaryStorage = new CloudinaryStorage({
   cloudinary,
   params: (req, file) => ({
@@ -114,7 +111,7 @@ const upload = multer({
   },
 });
 
-// ─── Auth Middleware ──────────────────────────────────────────────────────────
+// ─── Auth ─────────────────────────────────────────────────────────────────────
 const requireAuth = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -129,40 +126,40 @@ const requireAuth = (req, res, next) => {
 const sanitize = (val) => (typeof val === 'string' ? xss(val.trim()) : val);
 
 // ─── PUBLIC ROUTES ────────────────────────────────────────────────────────────
-
-app.get('/api/settings', (req, res) => {
-  const s = db.prepare('SELECT * FROM settings WHERE id = 1').get();
-  res.json(s || {});
+app.get('/api/settings', async (req, res) => {
+  const r = await pool.query('SELECT * FROM settings WHERE id = 1');
+  res.json(r.rows[0] || {});
 });
 
-app.get('/api/articles', (req, res) => {
+app.get('/api/articles', async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 20;
   const offset = (page - 1) * limit;
-  const total = db.prepare('SELECT COUNT(*) as c FROM articles').get().c;
-  const articles = db.prepare('SELECT * FROM articles ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset);
-  const parsed = articles.map(a => ({ ...a, hashtags: JSON.parse(a.hashtags || '[]') }));
-  res.json({ articles: parsed, total, page, pages: Math.ceil(total / limit) });
+  const total = (await pool.query('SELECT COUNT(*) as c FROM articles')).rows[0].c;
+  const articles = (await pool.query('SELECT * FROM articles ORDER BY created_at DESC LIMIT $1 OFFSET $2', [limit, offset])).rows;
+  res.json({ articles: articles.map(a => ({ ...a, hashtags: JSON.parse(a.hashtags || '[]') })), total, page, pages: Math.ceil(total / limit) });
 });
 
-app.get('/api/articles/featured', (req, res) => {
-  const article = db.prepare('SELECT * FROM articles ORDER BY created_at DESC LIMIT 1').get();
-  if (!article) return res.json(null);
-  res.json({ ...article, hashtags: JSON.parse(article.hashtags || '[]') });
+app.get('/api/articles/featured', async (req, res) => {
+  const r = await pool.query('SELECT * FROM articles ORDER BY created_at DESC LIMIT 1');
+  if (!r.rows[0]) return res.json(null);
+  const a = r.rows[0];
+  res.json({ ...a, hashtags: JSON.parse(a.hashtags || '[]') });
 });
 
-app.get('/api/articles/:id', (req, res) => {
-  const article = db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.id);
-  if (!article) return res.status(404).json({ error: 'Not found' });
-  res.json({ ...article, hashtags: JSON.parse(article.hashtags || '[]') });
+app.get('/api/articles/:id', async (req, res) => {
+  const r = await pool.query('SELECT * FROM articles WHERE id = $1', [req.params.id]);
+  if (!r.rows[0]) return res.status(404).json({ error: 'Not found' });
+  const a = r.rows[0];
+  res.json({ ...a, hashtags: JSON.parse(a.hashtags || '[]') });
 });
 
-app.get('/api/articles/:id/recommendations', (req, res) => {
-  const article = db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.id);
-  if (!article) return res.status(404).json([]);
-  const tags = JSON.parse(article.hashtags || '[]');
+app.get('/api/articles/:id/recommendations', async (req, res) => {
+  const r = await pool.query('SELECT * FROM articles WHERE id = $1', [req.params.id]);
+  if (!r.rows[0]) return res.json([]);
+  const tags = JSON.parse(r.rows[0].hashtags || '[]');
   if (!tags.length) return res.json([]);
-  const all = db.prepare('SELECT * FROM articles WHERE id != ?').all(req.params.id);
+  const all = (await pool.query('SELECT * FROM articles WHERE id != $1', [req.params.id])).rows;
   const recommendations = all
     .map(a => {
       const aTags = JSON.parse(a.hashtags || '[]');
@@ -175,24 +172,23 @@ app.get('/api/articles/:id/recommendations', (req, res) => {
   res.json(recommendations);
 });
 
-app.get('/api/search', (req, res) => {
+app.get('/api/search', async (req, res) => {
   const q = sanitize(req.query.q || '');
   const lang = req.query.lang || 'uz';
   if (!q) return res.json([]);
-  const results = db.prepare(`
-    SELECT * FROM articles 
-    WHERE title_${lang} LIKE ? OR abstract_${lang} LIKE ? OR keywords_${lang} LIKE ?
-    ORDER BY created_at DESC LIMIT 20
-  `).all(`%${q}%`, `%${q}%`, `%${q}%`);
-  res.json(results.map(a => ({ ...a, hashtags: JSON.parse(a.hashtags || '[]') })));
+  const results = await pool.query(
+    `SELECT * FROM articles WHERE title_${lang} ILIKE $1 OR abstract_${lang} ILIKE $1 OR keywords_${lang} ILIKE $1 ORDER BY created_at DESC LIMIT 20`,
+    [`%${q}%`]
+  );
+  res.json(results.rows.map(a => ({ ...a, hashtags: JSON.parse(a.hashtags || '[]') })));
 });
 
 // ─── ADMIN ROUTES ─────────────────────────────────────────────────────────────
-
-app.post('/api/admin/login', authLimiter, (req, res) => {
+app.post('/api/admin/login', authLimiter, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Missing credentials' });
-  const admin = db.prepare('SELECT * FROM admins WHERE username = ?').get(sanitize(username));
+  const r = await pool.query('SELECT * FROM admins WHERE username = $1', [sanitize(username)]);
+  const admin = r.rows[0];
   if (!admin || !bcrypt.compareSync(password, admin.password)) {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
@@ -200,12 +196,12 @@ app.post('/api/admin/login', authLimiter, (req, res) => {
   res.json({ token, username: admin.username });
 });
 
-app.get('/api/admin/articles', requireAuth, (req, res) => {
-  const articles = db.prepare('SELECT * FROM articles ORDER BY created_at DESC').all();
-  res.json(articles.map(a => ({ ...a, hashtags: JSON.parse(a.hashtags || '[]') })));
+app.get('/api/admin/articles', requireAuth, async (req, res) => {
+  const r = await pool.query('SELECT * FROM articles ORDER BY created_at DESC');
+  res.json(r.rows.map(a => ({ ...a, hashtags: JSON.parse(a.hashtags || '[]') })));
 });
 
-app.post('/api/admin/articles', requireAuth, upload.single('photo'), (req, res) => {
+app.post('/api/admin/articles', requireAuth, upload.single('photo'), async (req, res) => {
   const data = req.body;
   const langs = ['uz', 'ru', 'en'];
   const fields = ['title', 'author_info', 'abstract', 'keywords', 'introduction', 'literature_review', 'methodology', 'analysis_results', 'conclusion', 'references'];
@@ -215,50 +211,57 @@ app.post('/api/admin/articles', requireAuth, upload.single('photo'), (req, res) 
     (data.hashtags || '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean)
   );
   const photo_path = req.file ? req.file.path : '';
-  const stmt = db.prepare(`
-    INSERT INTO articles (photo_path, hashtags, ${cols.join(', ')})
-    VALUES (?, ?, ${cols.map(() => '?').join(', ')})
-  `);
-  const result = stmt.run(photo_path, hashtags, ...vals);
-  const article = db.prepare('SELECT * FROM articles WHERE id = ?').get(result.lastInsertRowid);
-  res.json({ ...article, hashtags: JSON.parse(article.hashtags) });
+  const placeholders = cols.map((_, i) => `$${i + 3}`).join(', ');
+  const r = await pool.query(
+    `INSERT INTO articles (photo_path, hashtags, ${cols.join(', ')}) VALUES ($1, $2, ${placeholders}) RETURNING *`,
+    [photo_path, hashtags, ...vals]
+  );
+  const a = r.rows[0];
+  res.json({ ...a, hashtags: JSON.parse(a.hashtags) });
 });
 
-app.put('/api/admin/articles/:id', requireAuth, upload.single('photo'), (req, res) => {
-  const existing = db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.id);
+app.put('/api/admin/articles/:id', requireAuth, upload.single('photo'), async (req, res) => {
+  const existing = (await pool.query('SELECT * FROM articles WHERE id = $1', [req.params.id])).rows[0];
   if (!existing) return res.status(404).json({ error: 'Not found' });
   const data = req.body;
   const langs = ['uz', 'ru', 'en'];
   const fields = ['title', 'author_info', 'abstract', 'keywords', 'introduction', 'literature_review', 'methodology', 'analysis_results', 'conclusion', 'references'];
-  const updates = langs.flatMap(l => fields.map(f => `${f}_${l} = ?`));
+  const cols = langs.flatMap(l => fields.map(f => `${f}_${l}`));
   const vals = langs.flatMap(l => fields.map(f => sanitize(data[`${f}_${l}`] || '')));
   const hashtags = JSON.stringify(
     (data.hashtags || '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean)
   );
   const photo_path = req.file ? req.file.path : existing.photo_path;
-  db.prepare(`UPDATE articles SET photo_path = ?, hashtags = ?, ${updates.join(', ')} WHERE id = ?`)
-    .run(photo_path, hashtags, ...vals, req.params.id);
-  const article = db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.id);
-  res.json({ ...article, hashtags: JSON.parse(article.hashtags) });
+  const updates = cols.map((c, i) => `${c} = $${i + 3}`).join(', ');
+  const r = await pool.query(
+    `UPDATE articles SET photo_path = $1, hashtags = $2, ${updates} WHERE id = $${cols.length + 3} RETURNING *`,
+    [photo_path, hashtags, ...vals, req.params.id]
+  );
+  const a = r.rows[0];
+  res.json({ ...a, hashtags: JSON.parse(a.hashtags) });
 });
 
-app.delete('/api/admin/articles/:id', requireAuth, (req, res) => {
-  const article = db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.id);
+app.delete('/api/admin/articles/:id', requireAuth, async (req, res) => {
+  const r = await pool.query('SELECT * FROM articles WHERE id = $1', [req.params.id]);
+  const article = r.rows[0];
   if (!article) return res.status(404).json({ error: 'Not found' });
   if (article.photo_path) {
     const publicId = article.photo_path.split('/').slice(-2).join('/').replace(/\.[^/.]+$/, '');
     cloudinary.uploader.destroy(publicId).catch(console.error);
   }
-  db.prepare('DELETE FROM articles WHERE id = ?').run(req.params.id);
+  await pool.query('DELETE FROM articles WHERE id = $1', [req.params.id]);
   res.json({ success: true });
 });
 
-app.put('/api/admin/settings', requireAuth, upload.single('logo'), (req, res) => {
+app.put('/api/admin/settings', requireAuth, upload.single('logo'), async (req, res) => {
   const { brand_name, tg_link, insta_link } = req.body;
   const logo_url = req.file ? req.file.path : req.body.logo_url;
-  db.prepare('UPDATE settings SET brand_name = ?, tg_link = ?, insta_link = ?, logo_url = ? WHERE id = 1')
-    .run(sanitize(brand_name || ''), sanitize(tg_link || ''), sanitize(insta_link || ''), sanitize(logo_url || ''));
-  res.json(db.prepare('SELECT * FROM settings WHERE id = 1').get());
+  await pool.query(
+    'UPDATE settings SET brand_name = $1, tg_link = $2, insta_link = $3, logo_url = $4 WHERE id = 1',
+    [sanitize(brand_name || ''), sanitize(tg_link || ''), sanitize(insta_link || ''), sanitize(logo_url || '')]
+  );
+  const r = await pool.query('SELECT * FROM settings WHERE id = 1');
+  res.json(r.rows[0]);
 });
 
 app.listen(PORT, () => console.log(`✅ TBGJ Server running on http://localhost:${PORT}`));
