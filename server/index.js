@@ -14,6 +14,14 @@ const multer = require('multer');
 const xss = require('xss');
 const path = require('path');
 const fs = require('fs');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -162,11 +170,11 @@ const seedDB = db.transaction(() => {
 seedDB();
 
 // ─── Multer File Upload ───────────────────────────────────────────────────────
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `article_${Date.now()}${ext}`);
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'tbgj',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
   },
 });
 const upload = multer({
@@ -296,7 +304,7 @@ app.post('/api/admin/articles', requireAuth, upload.single('photo'), (req, res) 
   const hashtags = JSON.stringify(
     (data.hashtags || '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean)
   );
-  const photo_path = req.file ? `/uploads/${req.file.filename}` : '';
+  const photo_path = req.file ? req.file.path : '';
 
   const stmt = db.prepare(`
     INSERT INTO articles (photo_path, hashtags, ${cols.join(', ')})
@@ -322,7 +330,7 @@ app.put('/api/admin/articles/:id', requireAuth, upload.single('photo'), (req, re
   const hashtags = JSON.stringify(
     (data.hashtags || '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean)
   );
-  const photo_path = req.file ? `/uploads/${req.file.filename}` : existing.photo_path;
+  const photo_path = req.file ? req.file.path : existing.photo_path;
 
   db.prepare(`UPDATE articles SET photo_path = ?, hashtags = ?, ${updates.join(', ')} WHERE id = ?`)
     .run(photo_path, hashtags, ...vals, req.params.id);
@@ -349,7 +357,7 @@ app.delete('/api/admin/articles/:id', requireAuth, (req, res) => {
 // PUT /api/admin/settings
 app.put('/api/admin/settings', requireAuth, upload.single('logo'), (req, res) => {
   const { brand_name, tg_link, insta_link } = req.body;
-  const logo_url = req.file ? `/uploads/${req.file.filename}` : req.body.logo_url;
+  const logo_url = req.file ? req.file.path : req.body.logo_url;
 
   db.prepare('UPDATE settings SET brand_name = ?, tg_link = ?, insta_link = ?, logo_url = ? WHERE id = 1')
     .run(sanitize(brand_name || ''), sanitize(tg_link || ''), sanitize(insta_link || ''), sanitize(logo_url || ''));
