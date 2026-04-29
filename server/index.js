@@ -58,6 +58,17 @@ db.pragma('foreign_keys = ON');
 
 // Create Tables
 db.exec(`
+  CREATE TABLE IF NOT EXISTS about (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+    title_uz TEXT DEFAULT 'Jurnal Haqida',
+    title_ru TEXT DEFAULT 'О журнале',
+    title_en TEXT DEFAULT 'About the Journal',
+    body_uz TEXT DEFAULT '',
+    body_ru TEXT DEFAULT '',
+    body_en TEXT DEFAULT '',
+    contacts TEXT DEFAULT '[]'
+  );
+
   CREATE TABLE IF NOT EXISTS settings (
     id INTEGER PRIMARY KEY DEFAULT 1,
     logo_url TEXT DEFAULT '',
@@ -120,6 +131,12 @@ const seedDB = db.transaction(() => {
   const settingsRow = db.prepare('SELECT id FROM settings WHERE id = 1').get();
   if (!settingsRow) {
     db.prepare('INSERT INTO settings (id, brand_name) VALUES (1, ?)').run('The Best Generations Journal');
+  }
+
+  // About page
+  const aboutRow = db.prepare('SELECT id FROM about WHERE id = 1').get();
+  if (!aboutRow) {
+    db.prepare('INSERT INTO about (id) VALUES (1)').run();
   }
 
   // Admin user
@@ -268,6 +285,27 @@ app.get('/api/search', (req, res) => {
   `).all(`%${q}%`, `%${q}%`, `%${q}%`);
 
   res.json(results.map(a => ({ ...a, hashtags: JSON.parse(a.hashtags || '[]') })));
+});
+
+// GET /api/about
+app.get('/api/about', (req, res) => {
+  const about = db.prepare('SELECT * FROM about WHERE id = 1').get();
+  if (!about) return res.json({});
+  res.json({ ...about, contacts: JSON.parse(about.contacts || '[]') });
+});
+
+// PUT /api/admin/about
+app.put('/api/admin/about', requireAuth, (req, res) => {
+  const { title_uz, title_ru, title_en, body_uz, body_ru, body_en, contacts } = req.body;
+  const contactsJson = JSON.stringify(Array.isArray(contacts) ? contacts : []);
+  db.prepare(`UPDATE about SET title_uz=?, title_ru=?, title_en=?, body_uz=?, body_ru=?, body_en=?, contacts=? WHERE id=1`)
+    .run(
+      sanitize(title_uz||''), sanitize(title_ru||''), sanitize(title_en||''),
+      sanitize(body_uz||''), sanitize(body_ru||''), sanitize(body_en||''),
+      contactsJson
+    );
+  const about = db.prepare('SELECT * FROM about WHERE id = 1').get();
+  res.json({ ...about, contacts: JSON.parse(about.contacts || '[]') });
 });
 
 // ─── ADMIN ROUTES ─────────────────────────────────────────────────────────────

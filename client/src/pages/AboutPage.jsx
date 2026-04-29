@@ -1,4 +1,6 @@
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { useLang } from '../contexts/LangContext';
 import { useSettings } from '../hooks/useSettings';
 
@@ -6,23 +8,21 @@ export default function AboutPage() {
   const { t, lang } = useLang();
   const { settings } = useSettings();
   const navigate = useNavigate();
+  const [about, setAbout] = useState(null);
 
-  const content = {
-    uz: {
-      title: 'Jurnal Haqida',
-      body: `"The Best Generations Journal" — ilmiy va ta'limiy maqolalar uchun zamonaviy platforma. Biz o'zbek, rus va ingliz tillarida yuqori sifatli ilmiy tadqiqotlarni nashr etamiz.\n\nJurnalimiz maqsadi — yosh olimlar va mutaxassislarga o'z ilmiy ishlarini dunyo jamoatchiligiga taqdim etish imkoniyatini berish.\n\nBiz quyidagi yo'nalishlar bo'yicha maqolalar qabul qilamiz:\n• Huquq va yuridik fanlar\n• Iqtisodiyot va biznes\n• Ta'lim va pedagogika\n• Ijtimoiy fanlar\n• Gumanitar fanlar`,
-    },
-    ru: {
-      title: 'О журнале',
-      body: `"The Best Generations Journal" — современная платформа для научных и образовательных статей. Мы публикуем высококачественные научные исследования на узбекском, русском и английском языках.\n\nЦель нашего журнала — предоставить молодым учёным и специалистам возможность представить свои научные работы мировому сообществу.\n\nМы принимаем статьи по следующим направлениям:\n• Право и юридические науки\n• Экономика и бизнес\n• Образование и педагогика\n• Социальные науки\n• Гуманитарные науки`,
-    },
-    en: {
-      title: 'About the Journal',
-      body: `"The Best Generations Journal" is a modern platform for scientific and educational articles. We publish high-quality scientific research in Uzbek, Russian, and English.\n\nOur journal's goal is to give young scientists and professionals the opportunity to present their scientific work to the global community.\n\nWe accept articles in the following areas:\n• Law and Legal Sciences\n• Economics and Business\n• Education and Pedagogy\n• Social Sciences\n• Humanities`,
-    },
-  };
+  useEffect(() => {
+    axios.get('/api/about').then(r => setAbout(r.data)).catch(() => {});
+  }, []);
 
-  const c = content[lang] || content.en;
+  if (!about) return (
+    <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="h-64 skeleton rounded-2xl"/>
+    </div>
+  );
+
+  const title = about[`title_${lang}`] || about.title_en || '';
+  const body = about[`body_${lang}`] || about.body_en || '';
+  const contacts = about.contacts || [];
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 animate-fade-in">
@@ -35,7 +35,6 @@ export default function AboutPage() {
       </button>
 
       <div className="bg-white rounded-2xl shadow-sm border border-navy-100 overflow-hidden">
-        {/* Header */}
         <div className="bg-navy-900 px-8 py-12 text-center relative overflow-hidden">
           <div className="absolute inset-0 opacity-10">
             <div className="absolute top-0 right-0 w-64 h-64 bg-gold-500 rounded-full -translate-y-32 translate-x-32"/>
@@ -52,29 +51,23 @@ export default function AboutPage() {
           <div className="h-0.5 w-16 bg-gold-500 mx-auto mt-4"/>
         </div>
 
-        {/* Content */}
         <div className="px-8 py-10">
-          <h2 className="font-serif text-2xl font-bold text-navy-900 mb-6">{c.title}</h2>
-          <div className="text-navy-700 leading-8 whitespace-pre-line font-sans text-base">{c.body}</div>
+          {title && <h2 className="font-serif text-2xl font-bold text-navy-900 mb-6">{title}</h2>}
+          {body && <div className="text-navy-700 leading-8 whitespace-pre-line font-sans text-base mb-10">{body}</div>}
 
-          {/* Contact */}
-          <div className="mt-10 pt-8 border-t border-navy-100">
-            <h3 className="font-serif text-lg font-bold text-navy-900 mb-4">Aloqa / Контакты / Contact</h3>
-            <div className="flex flex-wrap gap-4">
-              {settings.tg_link && (
-                <a href={settings.tg_link} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 btn-primary text-sm">
-                  Telegram
-                </a>
-              )}
-              {settings.insta_link && (
-                <a href={settings.insta_link} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 btn-ghost text-sm">
-                  Instagram
-                </a>
-              )}
+          {contacts.length > 0 && (
+            <div className="mt-6 pt-8 border-t border-navy-100">
+              <h3 className="font-serif text-lg font-bold text-navy-900 mb-4">Aloqa / Контакты / Contact</h3>
+              <div className="flex flex-wrap gap-3">
+                {contacts.map((c, i) => (
+                  <a key={i} href={c.url} target="_blank" rel="noopener noreferrer"
+                    className="btn-primary text-sm inline-flex items-center gap-2">
+                    {c.name}
+                  </a>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

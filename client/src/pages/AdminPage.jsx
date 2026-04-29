@@ -5,9 +5,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLang } from '../contexts/LangContext';
 import { useSettings } from '../hooks/useSettings';
 import ArticleForm from '../components/ArticleForm';
+import AboutEditor from './AboutEditor';
 import { getArticleField, formatDate, getImageUrl } from '../utils/api';
 
-const TAB = { ARTICLES: 'articles', SETTINGS: 'settings' };
+const TAB = { ARTICLES: 'articles', ABOUT: 'about', SETTINGS: 'settings' };
 
 // ─── Confirm Modal ────────────────────────────────────────────────────────────
 function ConfirmModal({ onConfirm, onCancel, message }) {
@@ -277,6 +278,11 @@ export default function AdminPage() {
               ${tab === TAB.ARTICLES ? 'bg-navy-900 text-gold-300' : 'text-navy-500 hover:text-navy-700'}`}>
             📄 {t('articles')}
           </button>
+          <button onClick={() => setTab(TAB.ABOUT)}
+            className={`px-5 py-2.5 rounded-lg text-sm font-sans font-semibold transition-all
+              ${tab === TAB.ABOUT ? 'bg-navy-900 text-gold-300' : 'text-navy-500 hover:text-navy-700'}`}>
+            📝 Haqida sahifasi
+          </button>
           <button onClick={() => setTab(TAB.SETTINGS)}
             className={`px-5 py-2.5 rounded-lg text-sm font-sans font-semibold transition-all
               ${tab === TAB.SETTINGS ? 'bg-navy-900 text-gold-300' : 'text-navy-500 hover:text-navy-700'}`}>
@@ -376,6 +382,16 @@ export default function AdminPage() {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ─── About Tab ──────────────────────────────── */}
+        {tab === TAB.ABOUT && (
+          <div>
+            <h2 className="font-serif text-xl font-bold text-navy-900 mb-5">Haqida sahifasi</h2>
+            <div className="bg-white rounded-2xl border border-navy-100 shadow-sm p-6">
+              <AboutEditor/>
+            </div>
           </div>
         )}
 
